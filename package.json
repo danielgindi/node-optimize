@@ -1,0 +1,31 @@
+{
+  "name": "node-optimize",
+  "version": "1.0.0",
+  "description": "Optimize a node project to a single JS file for distribution release.",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/danielgindi/node-optimize"
+  },
+  "keywords": [
+    "node.js",
+    "optimize",
+    "compact",
+    "distribute",
+    "production",
+    "uglify",
+    "uglify-js"
+  ],
+  "author": "Daniel Cohen Gindi <danielgindi@gmail.com> (https://github.com/danielgindi)",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/danielgindi/node-optimize/issues"
+  },
+  "homepage": "https://github.com/danielgindi/node-optimize",
+  "dependencies": {
+    "uglify-js": "2.4.*"
+  }
+}
