@@ -32,6 +32,11 @@ Usage:
 * Currently handles only JavaScript files.
 * Functionality of `require` statements stay the same - loading on demand, loading once, and synthesizing the `module` global object.
 
+Note that we can not process `require` statements that use variables - it must always be strings!  
+The reason is obvious, as variables are processed in runtime.  
+Although I do have plans to allow to pass a "hint" for additional modules to include which are not automatically discovered, and then replacing the dynamic `require` statements in runtime. I have a pretty clear idea on how to do that, so the moment there's a real need - I'll try and implement it.
+
+
 ## CoffeScript?
 
 This module does not currently support CoffeScript, and I do not currently have plans to support it as I see not use for CoffeScript (or Coffe!).  
