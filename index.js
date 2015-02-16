@@ -114,9 +114,9 @@ var getRequireStatements = function(ast, mainFilePath) {
     return results;
 };
 
-var regexEscapePattern = /([-\/()[\]?{}|*+\\:\.])/g;
+var regexEscapePattern = /[-\/()[\]?{}|*+\\:\.$^#|]/g;
 var regexEscape = function (string) {
-    return string.replace(regexEscapePattern, "\\$1");
+    return string.replace(regexEscapePattern, "\\$&");
 };
 
 optimizer.prototype.merge = function(mainFilePath) {
