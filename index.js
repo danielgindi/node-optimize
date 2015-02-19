@@ -134,16 +134,21 @@ optimizer.prototype.merge = function(mainFilePath) {
     var requiredMap = {};
 
     var requireFileMode = function (filePath) {
+
+        // These will be excluded, but we know that we still need to normalize paths of require to those
         if (filteredOutFiles.filter(function(filter) {
                 return path.normalize(filter) === path.normalize(filePath);
             }).length > 0) return 'normalize_path';
 
+        // These are not in the scope of the project, and should not be included
         if (filePath.substr(0, rootDir.length).toLowerCase() !== rootDir.toLowerCase()) {
             return false;
         }
 
+        // Now we only need the path without the project dir prefix
         filePath = filePath.substr(rootDir.length);
 
+        // The file is in node_modules under current project - exclude
         if (/^node_modules$|\/node_modules$|^node_modules\/|\\node_modules$|^node_modules\\/.test(filePath)) {
             return false;
         }
