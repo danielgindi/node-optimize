@@ -7,7 +7,7 @@ var fs = require('fs'),
 var optimizer = function (options) {
 
     this.options = {
-        ignoreRequired: (options ? options.ignoreRequired : null) || []
+        ignore: (options ? options.ignore || options.ignoreRequired : null) || []
     };
 
 };
@@ -129,7 +129,7 @@ optimizer.prototype.merge = function(mainFilePath) {
         throw new Error("Main file not found " + mainFilePath);
     }
 
-    var filteredOutFiles = getMatchingFiles(rootDir, this.options.ignoreRequired);
+    var filteredOutFiles = getMatchingFiles(rootDir, this.options.ignore);
 
     var requiredMap = {};
 

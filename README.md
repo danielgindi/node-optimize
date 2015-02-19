@@ -13,7 +13,7 @@ Usage:
 
 	var NodeOptimizer = require('node-optimize');
 	var optimizer = new NodeOptimizer({ 
-		ignoreRequired: [
+		ignore: [
 			'config/db.js',
 			'private/some-other-file.js',
 		]
@@ -27,7 +27,7 @@ Usage:
 
 ## What's in the bag
 
-* `options.ignoreRequired` -> Tell it which files to ignore in the process of expanding the `require` calls.
+* `options.ignore` -> Tell it which files to ignore in the process of expanding the `require` calls.
 * Automatically ignores core modules, or modules from `node_modules`.
 * Currently handles only JavaScript files.
 * Functionality of `require` statements stay the same - loading on demand, loading once, and synthesizing the `module` global object.
