@@ -7,8 +7,25 @@ var fs = require('fs'),
 var optimizer = function (options) {
 
     this.options = {
-        ignore: (options ? options.ignore || options.ignoreRequired : null) || []
+        ignore: (options ? options.ignore || options.ignoreRequired : null) || [],
+        include: (options ? options.include : null) || []
     };
+
+};
+
+var resolveRelativePath = function (from, to) {
+
+    var relPath = path.relative(from, to);
+    if (!/^[\./\\]/.test(relPath) && !/:\//.test(relPath)) {
+        relPath = './' + relPath;
+    }
+
+    // Normalize path if possible
+    if (relPath.indexOf(':') === -1) {
+        relPath = relPath.replace(/\\/g, '/');
+    }
+
+    return relPath;
 
 };
 
@@ -48,47 +65,78 @@ var getMatchingFiles = function(rootDir, filters) {
 
 };
 
-var getRequireStatements = function(ast, mainFilePath) {
+var tryJsonParse = function (data) {
+  try {
+      return JSON.parse(data);
+  } catch (e) {
+      return null;
+  }
+};
+
+var getRequireStatements = function(sourceCode, mainFilePath) {
+
+    // Replace newlines in the same way that UglifyJS does
+    // So we'll have correct `pos` properties
+
+    sourceCode = sourceCode.replace(/\r\n?|[\n\u2028\u2029]/g, "\n").replace(/\uFEFF/g, '');
+    var ast = UglifyJS.parse(sourceCode);
+
     var results = [];
 
-    var processRequireNode = function(text, args) {
+    var processRequireNode = function(originalText, text, args) {
         if (args.length !== 1) {
             return 'unknown';
         }
+
         var modulePath = args[0].value;
-        if (modulePath == null) {
-            return 'unknown';
-        }
 
-        if (/[/\\]/.test(modulePath)) {
-            var absoluteModulePath = path.resolve(fileDir, modulePath);
+        /** @type String|Boolean */
+        var absoluteModulePath = false;
 
-            if (!fs.existsSync(absoluteModulePath)) {
-                if (!/\.js$/i.test(absoluteModulePath)) {
-                    absoluteModulePath = absoluteModulePath + '.js';
-                }
+        if (modulePath) {
+            if (/[/\\]/.test(modulePath)) {
+                absoluteModulePath = path.resolve(fileDir, modulePath);
+
                 if (!fs.existsSync(absoluteModulePath)) {
-                    return 'not-exists';
+                    if (fs.existsSync(absoluteModulePath + '.js')) {
+                        absoluteModulePath = absoluteModulePath + '.js';
+                    } else if (fs.existsSync(absoluteModulePath + '.json')) {
+                        absoluteModulePath = absoluteModulePath + '.json';
+                    } else {
+                        // TODO: Try as package
+                        // 1. If X/package.json is a file, Parse X/package.json, and look for "main" field. Try X + (json main field)
+                        // 2. If X/index.js is a file, load X/index.js as JavaScript text.
+                        // 3. If X/index.json is a file, parse X/index.json to a JavaScript object.
+                        // Write the package.json/main field in the output for later lookup
+                    }
+
+                    if (!fs.existsSync(absoluteModulePath)) {
+                        return 'not-exists';
+                    }
+                }
+
+                var absoluteModulePathFile = fs.lstatSync(absoluteModulePath);
+                if (absoluteModulePathFile && absoluteModulePathFile.isDirectory()) {
+                    return 'directory';
                 }
             }
-
-            var absoluteModulePathFile = fs.lstatSync(absoluteModulePath);
-            if (absoluteModulePathFile && absoluteModulePathFile.isDirectory()) {
-                return 'directory';
+            else {
+                return 'core';
             }
-
-            results.push({
-                text: text,
-                path: absoluteModulePath
-            });
-
-            return true;
         }
 
-        return 'core';
+        results.push({
+            statement: originalText,
+            statementArguments: originalText.match(/^require\s*\(([\s\S]*)\)/)[1],
+            text: tryJsonParse(text),
+            path: absoluteModulePath
+        });
+
+        return modulePath ? true : 'complex';
     };
 
     var fileDir = path.dirname(mainFilePath);
+
     ast.walk(new UglifyJS.TreeWalker(function(node) {
 
         if (node instanceof UglifyJS.AST_Call) {
@@ -99,10 +147,14 @@ var getRequireStatements = function(ast, mainFilePath) {
 
             if (node.expression && node.expression.print_to_string() === 'require') {
 
+                var originalText = sourceCode.substring(node.start.pos, node.end.pos + 1);
                 var text = node.print_to_string({ beautify: false });
-                var ret = processRequireNode(text, node.args);
+                var ret = processRequireNode(originalText, text, node.args);
                 if (ret !== true && ret !== 'core') {
-                    console.log('Unhandled require in file: ' + mainFilePath + ', in: ' + text);
+                    console.log('Ignoring complex require statement in:\n' +
+                    '  file      : ' + mainFilePath + '\n' +
+                    '  statement : ' + originalText + '\n' +
+                    '  You may want to add that file to options.include.');
                 }
 
                 return true;
@@ -130,10 +182,19 @@ optimizer.prototype.merge = function(mainFilePath) {
     }
 
     var filteredOutFiles = getMatchingFiles(rootDir, this.options.ignore);
+    var includedFiles = getMatchingFiles(rootDir, this.options.include);
 
     var requiredMap = {};
 
     var requireFileMode = function (filePath) {
+
+        // This is a complex `required` statement which is not a simple script, leave that to runtime
+        if (filePath === false) return 'complex';
+
+        // These will surely be included
+        if (includedFiles.filter(function(filter) {
+                return path.normalize(filter) === path.normalize(filePath);
+            }).length > 0) return true;
 
         // These will be excluded, but we know that we still need to normalize paths of require to those
         if (filteredOutFiles.filter(function(filter) {
@@ -163,11 +224,12 @@ optimizer.prototype.merge = function(mainFilePath) {
         var sourceCode = required.source = fs.readFileSync(filePath, { encoding: 'utf8' }).toString();
         requiredMap[filePath] = required;
 
-        var ast = UglifyJS.parse(sourceCode);
-        var requireStatements = getRequireStatements(ast, filePath);
+        var requireStatements = getRequireStatements(sourceCode, filePath);
 
         requireStatements.forEach(function (requireStatement) {
-            requireStatement.path = path.resolve(filePath, requireStatement.path);
+            if (requireStatement.path) {
+                requireStatement.path = path.resolve(filePath, requireStatement.path);
+            }
         });
 
         requireStatements.forEach(function (requireStatement) {
@@ -190,9 +252,13 @@ optimizer.prototype.merge = function(mainFilePath) {
 
     };
 
+    // Recurse through the mail file
     recursiveSourceGrabber(mainFilePath);
 
-    var index = 0;
+    // Now include any files that were specifically included using options.include
+    includedFiles.forEach(function (includedFile) {
+        recursiveSourceGrabber(includedFile);
+    });
 
     // Assign module keys and prepare for storing in the 'required' container
     Object.keys(requiredMap).forEach(function (modulePath) {
@@ -200,29 +266,17 @@ optimizer.prototype.merge = function(mainFilePath) {
 
         var moduleToInline = requiredMap[modulePath];
 
-        moduleToInline.key = 'a' + index++;
-        moduleToInline.source = '\
-(function(){\
-    var fakeModule = { \
-        id: module.id, \
-        parent: module.parent, \
-        filename: module.filename, \
-        loaded: false, \
-        children: [], \
-        paths: module.paths, \
-        exports: {} \
-    }; \
-    \
-    var loadModule = function(module, exports){\n\n' + moduleToInline.source + '\n\n}; \
-    \
-    return function () {\
-        if (!fakeModule.loaded) {\
-            loadModule(fakeModule, fakeModule.exports);\
-            fakeModule.loaded = true;\
-        }\
-        return fakeModule.exports;\
-    }; \
-})()';
+        // Figure out the relative path of said module, relative to the main file
+        moduleToInline.relativePath = resolveRelativePath(rootDir, modulePath);
+
+        if (/\.json$/i.test(moduleToInline.relativePath)) {
+            // Generate the json's data to inline later
+            moduleToInline.source = '__JSON_LOADER__(' + JSON.stringify(moduleToInline.source) + ')';
+        } else {
+            // Generate the module's data to inline later
+            moduleToInline.source = '\
+__MODULE_LOADER__(function(module, exports){\n\n' + moduleToInline.source + '\n\n})';
+        }
 
     });
 
@@ -231,30 +285,76 @@ optimizer.prototype.merge = function(mainFilePath) {
         var moduleToInline = requiredMap[modulePath];
         moduleToInline.required.forEach(function (requiredStatement) {
 
-            var regex = regexEscape(requiredStatement.text);
-            regex = regex.replace(/^require\\\("/, 'require\\(\\s*["\']')
-                .replace(/"\\\)$/, '["\']\\s*\\)');
+            if (requiredStatement.mode) {
+                /**
+                 * In the past we were only normalizing paths of excluded modules,
+                 * And replacing `require` calls of included user modules.
+                 *
+                 * Now we replace all require calls which are not core modules
+                 */
 
-            if (requiredStatement.mode === 'normalize_path') {
+                // Prepare a replacing statement
+                var regex = regexEscape(requiredStatement.statement);
 
-                var relativePath = path.relative(rootDir, requiredStatement.path);
-                if (!/^[\./\\]/.test(relativePath) && !/:\//.test(relativePath)) {
-                    relativePath = './' + relativePath;
+                if (requiredStatement.text) {
+                    var relativePath = resolveRelativePath(mainFilePath, requiredStatement.text);
+                    moduleToInline.source = moduleToInline.source.replace(new RegExp(regex), '__FAKE_REQUIRE__(' + JSON.stringify(relativePath) + ')');
+                } else {
+                    moduleToInline.source = moduleToInline.source.replace(new RegExp(regex), '__FAKE_REQUIRE__(' + requiredStatement.statementArguments + ', ' + JSON.stringify(modulePath) + ')');
                 }
-
-                moduleToInline.source = moduleToInline.source.replace(new RegExp(regex, 'g'), 'require(' + JSON.stringify(relativePath) + ')');
-
-            } else if (requiredStatement.mode === true) {
-
-                moduleToInline.source = moduleToInline.source.replace(new RegExp(regex, 'g'), '((__REQUIRED_NODE_MODULES__.' + requiredMap[requiredStatement.path].key + ')())');
 
             }
 
         });
     });
 
-    var source = '', isFirstRequired = true;
-    source += 'var __REQUIRED_NODE_MODULES__ = {';
+    // Prepare this for cases when we do a "soft" lookup (adding .js or .json to pathnames) and pathes differ in case
+    // So we simulate the behavior on real FSes with case insensitivity
+    // On a case sensitive FS, if node.js looks for MODULEPATH + .js, I do not know if it will find .JS files too.
+    var caseInsensitivePathMap = {};
+    Object.keys(requiredMap).forEach(function (modulePath) {
+        caseInsensitivePathMap[modulePath.toLowerCase()] = modulePath;
+    });
+
+    // Start writing the actual output
+
+    var source = '', isFirstRequired;
+
+    // Write "required" wrapper beginning
+    source += '\
+(function(){ \
+    \
+    var __MODULE_LOADER__ = function (moduleLoadFunction) {\
+        var fakeModule = { \
+            id: module.id, \
+            parent: module.parent, \
+            filename: module.filename, \
+            loaded: false, \
+            children: [], \
+            paths: module.paths, \
+            exports: {} \
+        }; \
+        \
+        return function () { \
+            if (!fakeModule.loaded) { \
+                moduleLoadFunction(fakeModule, fakeModule.exports); \
+                fakeModule.loaded = true; \
+            } \
+            return fakeModule.exports; \
+        }; \
+    }; \
+    \
+    var __JSON_LOADER__ = function (json) {\
+        return function () { \
+            return JSON.parse(json); \
+        }; \
+    }; \
+    \
+    var __REQUIRED_NODE_MODULES__ = { \
+    ';
+
+    // Write known modules
+    isFirstRequired = true;
     Object.keys(requiredMap).forEach(function (modulePath) {
         if (modulePath === mainFilePath) return;
 
@@ -263,10 +363,74 @@ optimizer.prototype.merge = function(mainFilePath) {
         if (isFirstRequired) isFirstRequired = false;
         else source += ', ';
 
-        source += moduleToInline.key + ': \n' + moduleToInline.source + '\n';
+        source += JSON.stringify(moduleToInline.relativePath) + ': \n' + moduleToInline.source + '\n';
     });
-    source += '};';
 
+    // Write "required" wrapper end
+source += '\
+    }; \
+    \
+    var __CI_MODULE_PATH_MAP__ = { \
+    ';
+
+    // Write known modules
+    isFirstRequired = true;
+    Object.keys(caseInsensitivePathMap).forEach(function (ciPath) {
+        if (isFirstRequired) isFirstRequired = false;
+        else source += ', ';
+        source += JSON.stringify(ciPath) + ': \n' + JSON.stringify(caseInsensitivePathMap[ciPath]) + '\n';
+    });
+
+    // Write "required" wrapper end
+    source += '\
+    }; \
+    \
+    var path = require("path");\
+    var resolveRelativePath = ' + resolveRelativePath.toString() + '; \
+    var __MAIN_ORIGINAL_PATH__ = '  + JSON.stringify(mainFilePath) + ';\
+    \
+    var __LOOK_FOR_FILE__ = function (relPath) {\
+        var module = __REQUIRED_NODE_MODULES__.hasOwnProperty(relPath) ? __REQUIRED_NODE_MODULES__[relPath] : null;\
+        if (!module) {\
+            relPath = __CI_MODULE_PATH_MAP__[relPath];\
+            if (relPath) {\
+                module = __REQUIRED_NODE_MODULES__.hasOwnProperty(relPath) ? __REQUIRED_NODE_MODULES__[relPath] : null;\
+            }\
+        }\
+        return module;\
+    };\
+    \
+    var __FAKE_REQUIRE__ = function (modulePath, originalModulePath) {\
+        if (/[/\\\\]/.test(modulePath)) {\
+            /* Transform path to distribution path */\
+            var relPath;\
+            if (originalModulePath) {\
+                relPath = path.resolve(path.dirname(originalModulePath), modulePath);\
+                relPath = resolveRelativePath(path.dirname(__MAIN_ORIGINAL_PATH__), relPath);\
+            } else {\
+                relPath = resolveRelativePath(__dirname, modulePath);\
+            }\
+            \
+            /* Try inlined modules */\
+            var module = __LOOK_FOR_FILE__(relPath) || __LOOK_FOR_FILE__(relPath + \'.js\') || __LOOK_FOR_FILE__(relPath + \'.json\');\
+            if (module) return module();\
+            \
+            /* Try original `require` with transformed path */\
+            try {\
+                return require(relPath);\
+            } catch (e) {\
+            }\
+        }\
+        \
+        /* Try original `require` with original statement */\
+        return require(modulePath);\
+    };\
+    \
+    this.__FAKE_REQUIRE__ = __FAKE_REQUIRE__; \
+    \
+})();';
+
+    // Write main file source
     source += requiredMap[mainFilePath].source;
 
     console.log('Optimized node project starting with ' + mainFilePath);
