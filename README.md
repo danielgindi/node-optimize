@@ -29,15 +29,17 @@ Usage:
 
 * `options.ignore` -> Tell it which files to ignore in the process of expanding the `require` calls.
 * Automatically ignores core modules, or modules from `node_modules`.
-* Currently handles only JavaScript files.
+* Currently handles only `*.js`, `*.json`.
 * Functionality of `require` statements stay the same - loading on demand, loading once, and synthesizing the `module` global object.
 * Using `include` option to include files which are not automatically detected (because of dynamic `require`s using variables and other complex loading mechanisms)
 * Loading modules which were specified using complex `require` statement (i.e. `require(moduleName + '_' + index)`)
 
+*Note*: Support for `require` of module folders (with parsing of `package.json` etc.) will be added in the future.
+
 ## CoffeScript?
 
 This module does not currently support CoffeScript, and I do not currently have plans to support it as I see not use for CoffeScript (or Coffe!).  
-If you need to work on CoffeScript, you can use Grunt to copy the project structure to a temp folder, compile all Coffe files, and then run the `node-optimizer`.
+If you need to work on CoffeScript, you can use Grunt to copy the project structure to a temp folder, compile all Coffe files, and then run the `node-optimize`.
 
 ## Grunt
 
