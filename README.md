@@ -48,7 +48,7 @@ See [https://github.com/danielgindi/grunt-node-optimize](https://github.com/dani
 
 ## Contributing
 
-If you have anything to contribute, or functionality that you luck - you are more than welcome to participate in this!
+If you have anything to contribute, or functionality that you luck - you are more than welcome to participate in this!  
 If anyone wishes to contribute unit tests - that also would be great :-)
 
 ## Me
@@ -58,11 +58,9 @@ If anyone wishes to contribute unit tests - that also would be great :-)
 
 ## Help
 
-If you like what you see here, and want to support the work being done in this repository, you could:
-* Actually code, and issue pull requests
-* Spread the word
-* 
+If you want to buy me a beer, you are very welcome to
 [![Donate](https://www.paypalobjects.com/en_US/i/btn/btn_donate_LG.gif)](https://www.paypal.com/cgi-bin/webscr?cmd=_s-xclick&hosted_button_id=G4DXZS34VMS7A)
+ Thanks :-)
 
 ## License
 
