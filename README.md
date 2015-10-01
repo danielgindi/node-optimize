@@ -59,7 +59,7 @@ If anyone wishes to contribute unit tests - that also would be great :-)
 ## Help
 
 If you want to buy me a beer, you are very welcome to
-[![Donate](https://www.paypalobjects.com/en_US/i/btn/btn_donate_LG.gif)](https://www.paypal.com/cgi-bin/webscr?cmd=_s-xclick&hosted_button_id=G4DXZS34VMS7A)
+[![Donate](https://www.paypalobjects.com/en_US/i/btn/btn_donate_LG.gif)](https://www.paypal.com/cgi-bin/webscr?cmd=_s-xclick&hosted_button_id=G6CELS3E997ZE)
  Thanks :-)
 
 ## License
