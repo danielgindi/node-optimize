@@ -4,6 +4,15 @@ var fs = require('fs'),
     path = require('path'),
     UglifyJS = require('uglify-js');
 
+/**
+ * @const
+ */
+var CORE_MODULE_LIST = module.exports._builtinLibs;
+
+/**
+ * @constructor
+ * @param options
+ */
 var optimizer = function (options) {
 
     this.options = {
@@ -13,6 +22,13 @@ var optimizer = function (options) {
 
 };
 
+/**
+ * Resolves a path relative to another path
+ * I.e. what is the meaning of Y in `require(Y)` when called within a specific module?
+ * @param {String} from - base path
+ * @param {String} to - relative path to normalize
+ * @returns {String}
+ */
 var resolveRelativePath = function (from, to) {
 
     var relPath = path.relative(from, to);
@@ -29,11 +45,17 @@ var resolveRelativePath = function (from, to) {
 
 };
 
-var getMatchingFiles = function(rootDir, filters) {
+/**
+ * Enumerate files in `rootDir`, using `filters`
+ * @param {String} rootDir
+ * @param {String} filters
+ * @returns {Array.<String>} array of absolute paths
+ */
+var getMatchingFilesSync = function(rootDir, filters) {
     var results = [];
 
-    for (var i = 0, len = filters.length; i < len; i++) {
-        var destination = path.resolve(rootDir, filters[i]),
+    filters.forEach(function (filter) {
+        var destination = path.resolve(rootDir, filter),
             file = null;
 
         try {
@@ -59,12 +81,17 @@ var getMatchingFiles = function(rootDir, filters) {
                 results.push(destination);
             }
         }
-    }
+    });
 
     return results;
 
 };
 
+/**
+ * Performs a `JSON.parse(...)` on `data`, without throwing an exception
+ * @param {String?} data
+ * @returns {*} the parsed data, or null if failed
+ */
 var tryJsonParse = function (data) {
   try {
       return JSON.parse(data);
@@ -73,7 +100,13 @@ var tryJsonParse = function (data) {
   }
 };
 
-var getRequireStatements = function(sourceCode, mainFilePath) {
+/**
+ * Searches for all `require` statements inside `sourceCode`, and returns a normalized set of data about it
+ * @param {String} sourceCode - the source code body of the file being investigated
+ * @param {String} filePath - path of the file being investigated
+ * @returns {Array.<{statement: String, statementArguments: String, text: String, path: String}>}
+ */
+var getRequireStatements = function(sourceCode, filePath) {
 
     // Replace newlines in the same way that UglifyJS does
     // So we'll have correct `pos` properties
@@ -135,7 +168,7 @@ var getRequireStatements = function(sourceCode, mainFilePath) {
         return modulePath ? true : 'complex';
     };
 
-    var fileDir = path.dirname(mainFilePath);
+    var fileDir = path.dirname(filePath);
 
     ast.walk(new UglifyJS.TreeWalker(function(node) {
 
@@ -152,7 +185,7 @@ var getRequireStatements = function(sourceCode, mainFilePath) {
                 var ret = processRequireNode(originalText, text, node.args);
                 if (ret !== true && ret !== 'core') {
                     console.log('Ignoring complex require statement in:\n' +
-                    '  file      : ' + mainFilePath + '\n' +
+                    '  file      : ' + filePath + '\n' +
                     '  statement : ' + originalText + '\n' +
                     '  You may want to add that file to options.include.');
                 }
@@ -171,6 +204,11 @@ var regexEscape = function (string) {
     return string.replace(regexEscapePattern, "\\$&");
 };
 
+/**
+ * Do the actual optimization process
+ * @param {String} mainFilePath - path for the main file of the project
+ * @returns {string} optimized project file
+ */
 optimizer.prototype.merge = function(mainFilePath) {
 
     mainFilePath = path.resolve(mainFilePath) || path.resolve(process.cwd(), mainFilePath);
@@ -181,8 +219,8 @@ optimizer.prototype.merge = function(mainFilePath) {
         throw new Error("Main file not found " + mainFilePath);
     }
 
-    var filteredOutFiles = getMatchingFiles(rootDir, this.options.ignore);
-    var includedFiles = getMatchingFiles(rootDir, this.options.include);
+    var filteredOutFiles = getMatchingFilesSync(rootDir, this.options.ignore);
+    var includedFiles = getMatchingFilesSync(rootDir, this.options.include);
 
     var requiredMap = {};
 
@@ -439,3 +477,60 @@ source += '\
 };
 
 module.exports = optimizer;
+
+
+/**
+ Node's require algorithm:
+
+ require(X) from module at path Y
+ 1. If X is a core module, (IN: module.exports._builtinLibs)
+ 1. a. return the core module
+ 1. b. STOP
+ 2. If X begins with './' or '/' or '../' (Windows: OR [DRIVE LETTER]:/ OR [DRIVE LETTER]:\)
+ 2. a. LOAD_AS_FILE(Y + X)
+ 2. b. LOAD_AS_DIRECTORY(Y + X)
+ 3. LOAD_NODE_MODULES(X, dirname(Y))
+ 4. THROW "not found"
+
+ LOAD_AS_FILE(X)
+ 1. If X is a file, load X as JavaScript text.  STOP
+ 2. If X.js is a file, load X.js as JavaScript text.  STOP
+ 3. If X.json is a file, parse X.json to a JavaScript Object.  STOP
+ 4. If X.node is a file, load X.node as binary addon.  STOP
+
+ LOAD_AS_DIRECTORY(X)
+ 1. If X/package.json is a file,
+ 1. a. Parse X/package.json, and look for "main" field.
+ 1. b. let M = X + (json main field)
+ 1. c. LOAD_AS_FILE(M)
+ 2. If X/index.js is a file, load X/index.js as JavaScript text.  STOP
+ 3. If X/index.json is a file, parse X/index.json to a JavaScript object. STOP
+ 4. If X/index.node is a file, load X/index.node as binary addon.  STOP
+
+ LOAD_NODE_MODULES(X, START)
+ 1. let DIRS=NODE_MODULES_PATHS(START)
+ 2. for each DIR in DIRS:
+ 2. a. LOAD_AS_FILE(DIR/X)
+ 2. b. LOAD_AS_DIRECTORY(DIR/X)
+
+ NODE_MODULES_PATHS(START)
+ 1. let PARTS = path split(START)
+ 2. let I = count of PARTS - 1
+ 3. let DIRS = []
+ 4. while I >= 0,
+ 4. a. if PARTS[I] = "node_modules" CONTINUE
+ 4. c. DIR = path join(PARTS[0 .. I] + "node_modules")
+ 4. b. DIRS = DIRS + DIR
+ 4. c. let I = I - 1
+ 5. return DIRS
+
+ Things we may want to simulate:
+ 1. module.cache
+ 2. module.require
+ 3. module.id: The identifier for the module. Typically this is the fully resolved filename.
+ 4. module.filename: The fully resolved filename to the module.
+ 5. module.loaded: Whether or not the module is done loading, or is in the process of loading.
+ 6. module.parent: The module that first required this one.
+ 7. module.children: The module objects required by this one.
+
+ */
