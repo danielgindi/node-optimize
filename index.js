@@ -38,11 +38,14 @@ var isDirectorySync = function (path) {
  * @const
  */
 var CORE_MODULE_LIST = (function () {
-    var mainModule = module;
-    while (mainModule.parent && !mainModule.exports._builtinLibs) {
-        mainModule = mainModule.parent;
-    }
-    return mainModule.exports._builtinLibs;
+    var core = {};
+    ['assert', 'buffer', 'child_process', 'cluster',
+        'crypto', 'dgram', 'dns', 'events', 'fs', 'http', 'https', 'net',
+        'os', 'path', 'punycode', 'querystring', 'readline', 'repl',
+        'string_decoder', 'tls', 'tty', 'url', 'util', 'vm', 'zlib'].forEach(function (key) {
+            core[key] = true;
+        });
+    return core;
 })();
 
 /**
@@ -258,7 +261,7 @@ var getRequireStatements = function(sourceCode, filePath) {
         if (REQUIRE_X) {
 
             // 1. If X is a core module
-            if (CORE_MODULE_LIST.indexOf(REQUIRE_X) > -1) {
+            if (CORE_MODULE_LIST.hasOwnProperty(REQUIRE_X)) {
                 return 'core';
             }
 
@@ -484,13 +487,7 @@ __MODULE_LOADER__(function(module, exports){\n\n' + moduleToInline.source + '\n\
     source += '\
 (function(){ \
     \
-    var __CORE_MODULE_LIST__ = (function () { \
-        var mainModule = module; \
-        while (mainModule.parent && !mainModule.exports._builtinLibs) { \
-            mainModule = mainModule.parent; \
-        } \
-        return mainModule.exports._builtinLibs; \
-    })(); \
+    var __CORE_MODULE_LIST__ = ' + JSON.stringify(CORE_MODULE_LIST) + '; \
     \
     var __MODULE_LOADER__ = function (moduleLoadFunction) {\
         var fakeModule = { \
@@ -576,7 +573,7 @@ source += '\
     };\
     \
     var __FAKE_REQUIRE__ = function (modulePath, originalModulePath) {\
-        if (__CORE_MODULE_LIST__.indexOf(modulePath) === -1) {\
+        if (!__CORE_MODULE_LIST__.hasOwnProperty(modulePath)) {\
             /* Transform path to distribution path */\
             var relPath;\
             if (originalModulePath) {\
