@@ -1,13 +1,49 @@
 "use strict";
 
-var Fs = require('Fs'),
+var Fs = require('fs'),
     Path = require('path'),
     UglifyJS = require('uglify-js');
 
 /**
+ * Checks if a path exists and is a file (not a directory), without throwing any error
+ * @param {String} path
+ * @returns {Boolean}
+ */
+var isFileSync = function (path) {
+    var stat = null;
+    try {
+        stat = Fs.statSync(path);
+    } catch (e) {
+
+    }
+    return !!stat && stat.isFile();
+};
+
+/**
+ * Checks if a path exists and is directory, without throwing any error
+ * @param {String} path
+ * @returns {Boolean}
+ */
+var isDirectorySync = function (path) {
+    var stat = null;
+    try {
+        stat = Fs.statSync(path);
+    } catch (e) {
+
+    }
+    return !!stat && stat.isDirectory();
+};
+
+/**
  * @const
  */
-var CORE_MODULE_LIST = module.exports._builtinLibs;
+var CORE_MODULE_LIST = (function () {
+    var mainModule = module;
+    while (mainModule.parent && !mainModule.exports._builtinLibs) {
+        mainModule = mainModule.parent;
+    }
+    return mainModule.exports._builtinLibs;
+})();
 
 /**
  * @constructor
@@ -115,60 +151,136 @@ var getRequireStatements = function(sourceCode, filePath) {
     var ast = UglifyJS.parse(sourceCode);
 
     var results = [];
+    var MODULE_PATH_Y = Path.dirname(filePath);
 
     var processRequireNode = function(originalText, text, args) {
         if (args.length !== 1) {
             return 'unknown';
         }
 
-        var modulePath = args[0].value;
+        var CREATE_RESULT = function (path, type) {
+            var result = {
+                statement: originalText,
+                statementArguments: originalText.match(/^require\s*\(([\s\S]*)\)/)[1],
+                text: tryJsonParse(text),
+                path: path,
+                type: type
+            };
+            results.push(result);
+            return result;
+        };
 
-        /** @type String|Boolean */
-        var absoluteModulePath = false;
+        /**
+         * Implements the LOAD_AS_FILE function
+         * @param {String} X - the path
+         * @returns {Boolean|String} `true` if processed and fine, `false` if not found, 'node' if it's a binary module
+         */
+        var LOAD_AS_FILE = function (X) {
 
-        if (modulePath) {
-            if (/[/\\]/.test(modulePath)) {
-                absoluteModulePath = Path.resolve(fileDir, modulePath);
+            // 1. If X is a file, load X as JavaScript text.  STOP
+            if (isFileSync(X)) {
+                CREATE_RESULT(X, 'js');
+                return true;
+            }
 
-                if (!Fs.existsSync(absoluteModulePath)) {
-                    if (Fs.existsSync(absoluteModulePath + '.js')) {
-                        absoluteModulePath = absoluteModulePath + '.js';
-                    } else if (Fs.existsSync(absoluteModulePath + '.json')) {
-                        absoluteModulePath = absoluteModulePath + '.json';
-                    } else {
-                        // TODO: Try as package
-                        // 1. If X/package.json is a file, Parse X/package.json, and look for "main" field. Try X + (json main field)
-                        // 2. If X/index.js is a file, load X/index.js as JavaScript text.
-                        // 3. If X/index.json is a file, parse X/index.json to a JavaScript object.
-                        // Write the package.json/main field in the output for later lookup
-                    }
+            // 2. If X.js is a file, load X.js as JavaScript text.  STOP
+            if (isFileSync(X + '.js')) {
+                CREATE_RESULT(X + '.js', 'js');
+                return true;
+            }
 
-                    if (!Fs.existsSync(absoluteModulePath)) {
-                        return 'not-exists';
-                    }
-                }
+            // 3. If X.json is a file, parse X.json to a JavaScript Object.  STOP
+            if (isFileSync(X + '.json')) {
+                CREATE_RESULT(X + '.json', 'json');
+                return true;
+            }
 
-                var absoluteModulePathFile = Fs.lstatSync(absoluteModulePath);
-                if (absoluteModulePathFile && absoluteModulePathFile.isDirectory()) {
-                    return 'directory';
+            // 4. If X.node is a file, load X.node as binary addon.  STOP
+            if (isFileSync(X + '.node')) {
+                return 'node';
+            }
+
+            return false;
+        };
+
+        /**
+         * Implements the LOAD_AS_DIRECTORY function
+         * @param {String} X - the path
+         * @returns {Boolean|String} `true` if processed and fine, `false` if not found, 'node' if it's a binary module
+         */
+        var LOAD_AS_DIRECTORY = function (X) {
+
+            if (!isDirectorySync(X)) return false;
+
+            // 1. If X/package.json is a file,
+            var packageJson = null;
+            try {
+                // 1. a. Parse X/package.json, and look for "main" field.
+                packageJson = JSON.parse(Fs.readFileSync(Path.join(X, 'package.json'), { encoding: 'utf8' }).toString());
+            } catch (e) {
+
+            }
+
+            if (packageJson && packageJson.main) {
+                // 1. b. let M = X + (json main field)
+                var M = Path.join(X, packageJson.main);
+
+                // 1. c. LOAD_AS_FILE(M)
+                var loadedAsFile = LOAD_AS_FILE(M);
+                if (loadedAsFile) {
+                    return loadedAsFile;
                 }
             }
-            else {
+
+            // 2. If X/index.js is a file, load X/index.js as JavaScript text.  STOP
+            if (isFileSync(Path.join(X, 'index.js'))) {
+                CREATE_RESULT(Path.join(X, 'index.js'), 'js');
+                return true;
+            }
+
+            // 3. If X/index.json is a file, parse X/index.json to a JavaScript object. STOP
+            if (isFileSync(Path.join(X, 'index.json'))) {
+                CREATE_RESULT(Path.join(X, 'index.json'), 'json');
+                return true;
+            }
+
+            // 4. If X/index.node is a file, load X/index.node as binary addon.  STOP
+            if (isFileSync(Path.join(X, 'index.node'))) {
+                return 'node';
+            }
+
+            return false;
+        };
+
+        // require(X) from module at path Y
+        var REQUIRE_X = args[0].value;
+
+        if (REQUIRE_X) {
+
+            // 1. If X is a core module
+            if (CORE_MODULE_LIST.indexOf(REQUIRE_X) > -1) {
                 return 'core';
             }
+
+            // 2. If X begins with './' or '/' or '../' (Windows: OR [DRIVE LETTER]:/ OR [DRIVE LETTER]:\)
+            if (/^(\.{0,2}[/\\]|[a-zA-Z]:)/.test(REQUIRE_X)) {
+                return LOAD_AS_FILE(Path.resolve(MODULE_PATH_Y, REQUIRE_X)) /* 2. a. LOAD_AS_FILE(Y + X) */
+                    || LOAD_AS_DIRECTORY(Path.resolve(MODULE_PATH_Y, REQUIRE_X)); /* 2. b. LOAD_AS_DIRECTORY(Y + X) */
+            }
+
+            // 3. LOAD_NODE_MODULES(X, dirname(Y))
+            // We ignore node_modules, as it makes no sense.
+            // They will most probably contain binaries, and will probably benefit from `npm update`s...
+
+            // 4. THROW "not found"
+            return 'not-exists';
+        } else {
+
+            // The expression inside the `require` is too complex, we can't parse it.
+
+            return 'complex';
         }
-
-        results.push({
-            statement: originalText,
-            statementArguments: originalText.match(/^require\s*\(([\s\S]*)\)/)[1],
-            text: tryJsonParse(text),
-            path: absoluteModulePath
-        });
-
-        return modulePath ? true : 'complex';
     };
-
-    var fileDir = Path.dirname(filePath);
 
     ast.walk(new UglifyJS.TreeWalker(function(node) {
 
@@ -182,8 +294,14 @@ var getRequireStatements = function(sourceCode, filePath) {
 
                 var originalText = sourceCode.substring(node.start.pos, node.end.pos + 1);
                 var text = node.print_to_string({ beautify: false });
+
                 var ret = processRequireNode(originalText, text, node.args);
-                if (ret !== true && ret !== 'core') {
+
+                if (ret !== true &&
+                    ret !== 'core' &&
+                    ret !== 'node' &&
+                    ret !== 'not-exists') {
+
                     console.log('Ignoring complex require statement in:\n' +
                     '  file      : ' + filePath + '\n' +
                     '  statement : ' + originalText + '\n' +
@@ -215,7 +333,7 @@ optimizer.prototype.merge = function(mainFilePath) {
     var rootDir = Fs.lstatSync(mainFilePath).isDirectory() ? Path.resolve(mainFilePath) : Path.dirname(Path.resolve(mainFilePath));
     rootDir += /\\/.test(Path.resolve('/path/to')) ? '\\' : '/';
 
-    if (!Fs.existsSync(mainFilePath)) {
+    if (!isFileSync(mainFilePath)) {
         throw new Error("Main file not found " + mainFilePath);
     }
 
@@ -290,7 +408,7 @@ optimizer.prototype.merge = function(mainFilePath) {
 
     };
 
-    // Recurse through the mail file
+    // Recurse through the main file
     recursiveSourceGrabber(mainFilePath);
 
     // Now include any files that were specifically included using options.include
