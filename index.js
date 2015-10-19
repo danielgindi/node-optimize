@@ -1,7 +1,7 @@
 "use strict";
 
-var fs = require('fs'),
-    path = require('path'),
+var Fs = require('Fs'),
+    Path = require('path'),
     UglifyJS = require('uglify-js');
 
 /**
@@ -31,7 +31,7 @@ var optimizer = function (options) {
  */
 var resolveRelativePath = function (from, to) {
 
-    var relPath = path.relative(from, to);
+    var relPath = Path.relative(from, to);
     if (!/^[\./\\]/.test(relPath) && !/:\//.test(relPath)) {
         relPath = './' + relPath;
     }
@@ -55,26 +55,26 @@ var getMatchingFilesSync = function(rootDir, filters) {
     var results = [];
 
     filters.forEach(function (filter) {
-        var destination = path.resolve(rootDir, filter),
+        var destination = Path.resolve(rootDir, filter),
             file = null;
 
         try {
-            file = fs.lstatSync(destination);
+            file = Fs.lstatSync(destination);
         } catch (e) {
         }
 
         if (file && file.isDirectory()) {
-            fs.readdirSync(destination).reduce((function(prev, curr) {
-                prev.push(path.join(destination, curr));
+            Fs.readdirSync(destination).reduce((function(prev, curr) {
+                prev.push(Path.join(destination, curr));
                 return prev;
             }), results);
         } else {
-            if (path.extname(destination) === '') {
-                var fileName = path.basename(destination);
-                fs.readdirSync(path.dirname(destination)).filter(function(fileNameLoc) {
+            if (Path.extname(destination) === '') {
+                var fileName = Path.basename(destination);
+                Fs.readdirSync(Path.dirname(destination)).filter(function(fileNameLoc) {
                     return fileNameLoc.indexOf(fileName) !== -1;
                 }).reduce((function(prev, curr) {
-                    prev.push(path.join(destination, curr));
+                    prev.push(Path.join(destination, curr));
                     return prev;
                 }), results);
             } else {
@@ -128,12 +128,12 @@ var getRequireStatements = function(sourceCode, filePath) {
 
         if (modulePath) {
             if (/[/\\]/.test(modulePath)) {
-                absoluteModulePath = path.resolve(fileDir, modulePath);
+                absoluteModulePath = Path.resolve(fileDir, modulePath);
 
-                if (!fs.existsSync(absoluteModulePath)) {
-                    if (fs.existsSync(absoluteModulePath + '.js')) {
+                if (!Fs.existsSync(absoluteModulePath)) {
+                    if (Fs.existsSync(absoluteModulePath + '.js')) {
                         absoluteModulePath = absoluteModulePath + '.js';
-                    } else if (fs.existsSync(absoluteModulePath + '.json')) {
+                    } else if (Fs.existsSync(absoluteModulePath + '.json')) {
                         absoluteModulePath = absoluteModulePath + '.json';
                     } else {
                         // TODO: Try as package
@@ -143,12 +143,12 @@ var getRequireStatements = function(sourceCode, filePath) {
                         // Write the package.json/main field in the output for later lookup
                     }
 
-                    if (!fs.existsSync(absoluteModulePath)) {
+                    if (!Fs.existsSync(absoluteModulePath)) {
                         return 'not-exists';
                     }
                 }
 
-                var absoluteModulePathFile = fs.lstatSync(absoluteModulePath);
+                var absoluteModulePathFile = Fs.lstatSync(absoluteModulePath);
                 if (absoluteModulePathFile && absoluteModulePathFile.isDirectory()) {
                     return 'directory';
                 }
@@ -168,7 +168,7 @@ var getRequireStatements = function(sourceCode, filePath) {
         return modulePath ? true : 'complex';
     };
 
-    var fileDir = path.dirname(filePath);
+    var fileDir = Path.dirname(filePath);
 
     ast.walk(new UglifyJS.TreeWalker(function(node) {
 
@@ -211,11 +211,11 @@ var regexEscape = function (string) {
  */
 optimizer.prototype.merge = function(mainFilePath) {
 
-    mainFilePath = path.resolve(mainFilePath) || path.resolve(process.cwd(), mainFilePath);
-    var rootDir = fs.lstatSync(mainFilePath).isDirectory() ? path.resolve(mainFilePath) : path.dirname(path.resolve(mainFilePath));
-    rootDir += /\\/.test(path.resolve('/path/to')) ? '\\' : '/';
+    mainFilePath = Path.resolve(mainFilePath) || Path.resolve(process.cwd(), mainFilePath);
+    var rootDir = Fs.lstatSync(mainFilePath).isDirectory() ? Path.resolve(mainFilePath) : Path.dirname(Path.resolve(mainFilePath));
+    rootDir += /\\/.test(Path.resolve('/path/to')) ? '\\' : '/';
 
-    if (!fs.existsSync(mainFilePath)) {
+    if (!Fs.existsSync(mainFilePath)) {
         throw new Error("Main file not found " + mainFilePath);
     }
 
@@ -231,12 +231,12 @@ optimizer.prototype.merge = function(mainFilePath) {
 
         // These will surely be included
         if (includedFiles.filter(function(filter) {
-                return path.normalize(filter) === path.normalize(filePath);
+                return Path.normalize(filter) === Path.normalize(filePath);
             }).length > 0) return true;
 
         // These will be excluded, but we know that we still need to normalize paths of require to those
         if (filteredOutFiles.filter(function(filter) {
-                return path.normalize(filter) === path.normalize(filePath);
+                return Path.normalize(filter) === Path.normalize(filePath);
             }).length > 0) return 'normalize_path';
 
         // These are not in the scope of the project, and should not be included
@@ -259,14 +259,14 @@ optimizer.prototype.merge = function(mainFilePath) {
 
         var required = {};
 
-        var sourceCode = required.source = fs.readFileSync(filePath, { encoding: 'utf8' }).toString();
+        var sourceCode = required.source = Fs.readFileSync(filePath, { encoding: 'utf8' }).toString();
         requiredMap[filePath] = required;
 
         var requireStatements = getRequireStatements(sourceCode, filePath);
 
         requireStatements.forEach(function (requireStatement) {
             if (requireStatement.path) {
-                requireStatement.path = path.resolve(filePath, requireStatement.path);
+                requireStatement.path = Path.resolve(filePath, requireStatement.path);
             }
         });
 
@@ -423,7 +423,7 @@ source += '\
     source += '\
     }; \
     \
-    var path = require("path");\
+    var Path = require("path");\
     var resolveRelativePath = ' + resolveRelativePath.toString() + '; \
     var __MAIN_ORIGINAL_PATH__ = '  + JSON.stringify(mainFilePath) + ';\
     \
@@ -443,8 +443,8 @@ source += '\
             /* Transform path to distribution path */\
             var relPath;\
             if (originalModulePath) {\
-                relPath = path.resolve(path.dirname(originalModulePath), modulePath);\
-                relPath = resolveRelativePath(path.dirname(__MAIN_ORIGINAL_PATH__), relPath);\
+                relPath = Path.resolve(Path.dirname(originalModulePath), modulePath);\
+                relPath = resolveRelativePath(Path.dirname(__MAIN_ORIGINAL_PATH__), relPath);\
             } else {\
                 relPath = resolveRelativePath(__dirname, modulePath);\
             }\
