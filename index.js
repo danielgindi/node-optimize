@@ -375,6 +375,8 @@ optimizer.prototype.merge = function(mainFilePath) {
 
     var recursiveSourceGrabber = function(filePath) {
 
+        if (requiredMap.hasOwnProperty(filePath)) return;
+
         var required = {};
 
         var sourceCode = required.source = Fs.readFileSync(filePath, { encoding: 'utf8' }).toString();
@@ -477,6 +479,8 @@ __MODULE_LOADER__(function(module, exports){\n\n' + moduleToInline.source + '\n\
     var source = '', isFirstRequired;
 
     // Write "required" wrapper beginning
+    // NOTE: It is mandatory that `fakeModule.loaded = true` is done before `moduleLoadFunction`,
+    //       in order to supprt cyclic requires.
     source += '\
 (function(){ \
     \
@@ -492,8 +496,15 @@ __MODULE_LOADER__(function(module, exports){\n\n' + moduleToInline.source + '\n\
         }; \
         \
         return function () { \
-            if (!fakeModule.loaded) { \
-                moduleLoadFunction(fakeModule, fakeModule.exports); \
+            if (!fakeModule.loaded && !fakeModule.__isLoading) { \
+                fakeModule.__isLoading = true; \
+                try {\
+                  moduleLoadFunction(fakeModule, fakeModule.exports); \
+                  fakeModule.__isLoading = false;\
+                } catch (e) {\
+                  fakeModule.__isLoading = false;\
+                  throw e;\
+                }\
                 fakeModule.loaded = true; \
             } \
             return fakeModule.exports; \
