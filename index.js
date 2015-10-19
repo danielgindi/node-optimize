@@ -484,6 +484,14 @@ __MODULE_LOADER__(function(module, exports){\n\n' + moduleToInline.source + '\n\
     source += '\
 (function(){ \
     \
+    var __CORE_MODULE_LIST__ = (function () { \
+        var mainModule = module; \
+        while (mainModule.parent && !mainModule.exports._builtinLibs) { \
+            mainModule = mainModule.parent; \
+        } \
+        return mainModule.exports._builtinLibs; \
+    })(); \
+    \
     var __MODULE_LOADER__ = function (moduleLoadFunction) {\
         var fakeModule = { \
             id: module.id, \
@@ -568,7 +576,7 @@ source += '\
     };\
     \
     var __FAKE_REQUIRE__ = function (modulePath, originalModulePath) {\
-        if (/[/\\\\]/.test(modulePath)) {\
+        if (__CORE_MODULE_LIST__.indexOf(modulePath) === -1) {\
             /* Transform path to distribution path */\
             var relPath;\
             if (originalModulePath) {\
