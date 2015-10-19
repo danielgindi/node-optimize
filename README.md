@@ -29,17 +29,26 @@ Usage:
 
 * `options.ignore` -> Tell it which files to ignore in the process of expanding the `require` calls.
 * Automatically ignores core modules, or modules from `node_modules`.
-* Currently handles only `*.js`, `*.json`.
+* Currently handles `*.js`, `*.json`, and directory modules (with or without package.json/main).
 * Functionality of `require` statements stay the same - loading on demand, loading once, and synthesizing the `module` global object.
+* Handling of cyclic references same as node.js's' native implementation
 * Using `include` option to include files which are not automatically detected (because of dynamic `require`s using variables and other complex loading mechanisms)
 * Loading modules which were specified using complex `require` statement (i.e. `require(moduleName + '_' + index)`)
 
 *Note*: Support for `require` of module folders (with parsing of `package.json` etc.) will be added in the future.
 
-## CoffeScript?
+## CoffeeScript
 
-This module does not currently support CoffeScript, and I do not currently have plans to support it as I see not use for CoffeScript (or Coffe!).  
-If you need to work on CoffeScript, you can use Grunt to copy the project structure to a temp folder, compile all Coffe files, and then run the `node-optimize`.
+If you need support for CoffeScript, simply use Grunt to "compile" your Coffee files, and then run the optimizer on a pure JS project.
+
+## Binary modules
+
+There's no simple way to embed native binary modules (*.node), or modules that depend on other local raw files.
+In case you have a module which is known to have binary files, you should exclude it from optimization, and put it in a known path, or on a private NPM etc.
+
+I've tried to also support squashing `node_modules` for cases where one wants to eliminate the need of an `npm install` in a production project,
+but I have abandon those trials, as it makes no sense:
+In 99% of the cases on of the modules in the `node_modules` tree will have binaries, and `npm install`/`npm update` is a strength anyway as it allows for bugfixes even in a production project.
 
 ## Grunt
 
