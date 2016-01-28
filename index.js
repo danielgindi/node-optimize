@@ -281,6 +281,8 @@ var getRequireStatements = function(sourceCode, filePath) {
 
             // The expression inside the `require` is too complex, we can't parse it.
 
+            CREATE_RESULT(REQUIRE_X, 'complex');
+
             return 'complex';
         }
     };
@@ -394,7 +396,11 @@ optimizer.prototype.merge = function(mainFilePath) {
         });
 
         requireStatements.forEach(function (requireStatement) {
-            requireStatement.mode = requireFileMode(requireStatement.path);
+            if (requireStatement.path) {
+                requireStatement.mode = requireFileMode(requireStatement.path);
+            } else if (requireStatement.type === 'complex') {
+                requireStatement.mode = 'complex';
+            }
         });
 
         requireStatements = requireStatements.filter(function (requireStatement) {
