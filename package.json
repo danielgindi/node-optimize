@@ -26,6 +26,6 @@
   },
   "homepage": "https://github.com/danielgindi/node-optimize",
   "dependencies": {
-    "uglify-js": "2.4.*"
+    "uglify-js": "*"
   }
 }
