@@ -1,6 +1,6 @@
 {
   "name": "node-optimize",
-  "version": "1.2.2",
+  "version": "1.2.3",
   "description": "Optimize a node project to a single JS file for distribution release.",
   "main": "index.js",
   "scripts": {
